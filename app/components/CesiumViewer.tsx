@@ -544,31 +544,33 @@ export default function CesiumViewer() {
                 floorplanDs = await GeoJsonDataSource.load(fpRes, {
                   clampToGround: true  // Clamp to terrain for natural ground following
                 });
-                // DO NOT add to viewer yet - keep it completely separate until needed
-               
-                                 // Style + hide by default - only process polygons and polylines, ignore points
-                  floorplanDs.entities.values.forEach((e: any) => {
-                   if (e.polygon) {
-                     e.polygon.material = new ColorMaterialProperty(Color.YELLOW.withAlpha(0.6));
-                     e.polygon.outline = true;
-                     e.polygon.outlineColor = Color.BLACK;
-                     e.polygon.height = undefined;          // we'll set on demand
-                     e.polygon.extrudedHeight = undefined;
-                     e.polygon.clampToGround = true;  // Ensure polygons follow terrain
-                     e.show = false;
-                   }
-                   if (e.polyline) {
-                     e.polyline.width = 3; // Make lines thicker for better visibility
-                     e.polyline.material = new ColorMaterialProperty(Color.BLUE.withAlpha(0.8)); // Blue lines for better contrast
-                     e.polyline.clampToGround = true;  // Ensure polylines follow terrain
-                     e.polyline.height = undefined; // we'll set on demand
-                     e.show = false;
-                   }
-                   // Ignore points - they're not needed for floorplan visualization
-                   if (e.point) {
-                     e.show = false;
-                   }
-                 });
+                                                  // DO NOT add to viewer yet - keep it completely separate until needed
+                
+                                  // Style + hide by default - only process polygons and polylines, ignore points
+                    floorplanDs.entities.values.forEach((e: any) => {
+                     if (e.polygon) {
+                       e.polygon.material = new ColorMaterialProperty(Color.YELLOW.withAlpha(0.6));
+                       e.polygon.outline = true;
+                       e.polygon.outlineColor = Color.BLACK;
+                       e.polygon.height = undefined;          // we'll set on demand
+                       e.polygon.extrudedHeight = undefined;
+                       e.polygon.clampToGround = true;  // Enable ground clamping for terrain following
+                       e.polygon.heightReference = HeightReference.CLAMP_TO_GROUND;
+                       e.show = false;
+                     }
+                     if (e.polyline) {
+                       e.polyline.width = 3; // Make lines thicker for better visibility
+                       e.polyline.material = new ColorMaterialProperty(Color.BLUE.withAlpha(0.8)); // Blue lines for better contrast
+                       e.polyline.clampToGround = true;  // Enable ground clamping for terrain following
+                       e.polyline.heightReference = HeightReference.CLAMP_TO_GROUND;
+                       e.polyline.height = undefined; // we'll set on demand
+                       e.show = false;
+                     }
+                     // Ignore points - they're not needed for floorplan visualization
+                     if (e.point) {
+                       e.show = false;
+                     }
+                   });
 
                                                              console.log('Floorplan (3616747) loaded and hidden - NOT added to viewer yet');
                  console.log('floorplan entities:',
@@ -588,14 +590,180 @@ export default function CesiumViewer() {
                console.warn('Could not load floorplan 3616747', e);
              }
 
-            // Drag and Drop Helper Functions for Floorplan
-                         /** Put a draggable handle at the datasource centroid and let the user drag to move it */
+                         // Enhanced Drag and Drop Helper Functions for Floorplan with Position Saving
+             
+             // Function to save floorplan position to localStorage
+             function saveFloorplanPosition(ds: any, viewer: any) {
+               try {
+                 const t = viewer.clock.currentTime;
+                 const centroid = centroidCartesian(ds, t);
+                 
+                 if (centroid) {
+                   const cartographic = Cartographic.fromCartesian(centroid);
+                   const position = {
+                     longitude: CesiumMath.toDegrees(cartographic.longitude),
+                     latitude: CesiumMath.toDegrees(cartographic.latitude),
+                     timestamp: Date.now()
+                   };
+                   
+                   localStorage.setItem('floorplanPosition', JSON.stringify(position));
+                   console.log('💾 Floorplan position saved:', position);
+                   
+                   // Show save confirmation
+                   showSaveConfirmation();
+                 }
+               } catch (error) {
+                 console.error('Failed to save floorplan position:', error);
+               }
+             }
+             
+             // Function to load saved floorplan position
+             function loadSavedFloorplanPosition(): { longitude: number; latitude: number; timestamp: number } | null {
+               try {
+                 const saved = localStorage.getItem('floorplanPosition');
+                 if (saved) {
+                   const position = JSON.parse(saved);
+                   console.log('📂 Loaded saved floorplan position:', position);
+                   return position;
+                 }
+               } catch (error) {
+                 console.error('Failed to load saved floorplan position:', error);
+               }
+               return null;
+             }
+             
+             // Function to show save confirmation
+             function showSaveConfirmation() {
+               // Remove existing confirmation if any
+               const existing = document.getElementById('saveConfirmation');
+               if (existing) existing.remove();
+               
+               const confirmation = document.createElement('div');
+               confirmation.id = 'saveConfirmation';
+               confirmation.innerHTML = '✅ Position saved!';
+               confirmation.style.cssText = `
+                 position: absolute;
+                 top: 50%;
+                 left: 50%;
+                 transform: translate(-50%, -50%);
+                 background-color: #10b981;
+                 color: white;
+                 padding: 12px 24px;
+                 border-radius: 8px;
+                 font-weight: 600;
+                 font-family: Arial, sans-serif;
+                 font-size: 14px;
+                 z-index: 2000;
+                 box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+                 animation: fadeInOut 2s ease-in-out;
+               `;
+               
+               // Add CSS animation
+               const style = document.createElement('style');
+               style.textContent = `
+                 @keyframes fadeInOut {
+                   0% { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+                   20% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+                   80% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+                   100% { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+                 }
+               `;
+               document.head.appendChild(style);
+               
+               document.body.appendChild(confirmation);
+               
+               // Remove after animation
+               setTimeout(() => {
+                 if (confirmation.parentNode) {
+                   confirmation.parentNode.removeChild(confirmation);
+                 }
+               }, 2000);
+             }
+             
+             // Function to reset saved position
+             function resetSavedPosition() {
+               try {
+                 localStorage.removeItem('floorplanPosition');
+                 console.log('🗑️ Saved floorplan position cleared');
+                 
+                 // Show reset confirmation
+                 const confirmation = document.createElement('div');
+                 confirmation.innerHTML = '🗑️ Position reset to default!';
+                 confirmation.style.cssText = `
+                   position: absolute;
+                   top: 50%;
+                   left: 50%;
+                   transform: translate(-50%, -50%);
+                   background-color: #ef4444;
+                   color: white;
+                   padding: 12px 24px;
+                   border-radius: 8px;
+                   font-weight: 600;
+                   font-family: Arial, sans-serif;
+                   font-size: 14px;
+                   z-index: 2000;
+                   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+                   animation: fadeInOut 2s ease-in-out;
+                 `;
+                 
+                 document.body.appendChild(confirmation);
+                 
+                 setTimeout(() => {
+                   if (confirmation.parentNode) {
+                     confirmation.parentNode.removeChild(confirmation);
+                   }
+                 }, 2000);
+               } catch (error) {
+                 console.error('Failed to reset saved position:', error);
+               }
+             }
+             
+             // Function to show current saved position status
+             function showSavedPositionStatus() {
+               const savedPosition = loadSavedFloorplanPosition();
+               if (savedPosition) {
+                 const status = document.createElement('div');
+                 status.innerHTML = `
+                   <div style="margin-bottom: 8px; font-weight: 600; color: #059669;">💾 Saved Position:</div>
+                   <div style="font-size: 12px; color: #6b7280;">
+                     Longitude: ${savedPosition.longitude.toFixed(6)}<br>
+                     Latitude: ${savedPosition.latitude.toFixed(6)}<br>
+                     Saved: ${new Date(savedPosition.timestamp).toLocaleString()}
+                   </div>
+                 `;
+                 status.style.cssText = `
+                   position: absolute;
+                   top: 20px;
+                   right: 20px;
+                   background-color: white;
+                   padding: 12px;
+                   border-radius: 8px;
+                   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+                   border: 1px solid #e5e7eb;
+                   font-family: Arial, sans-serif;
+                   font-size: 13px;
+                   z-index: 1000;
+                   max-width: 200px;
+                 `;
+                 
+                 document.body.appendChild(status);
+                 
+                 // Remove after 5 seconds
+                 setTimeout(() => {
+                   if (status.parentNode) {
+                     status.parentNode.removeChild(status);
+                   }
+                 }, 5000);
+               }
+             }
+             
+             /** Enhanced draggable handle with position saving */
              function enableDragForDataSource(ds: any, viewer: any) {
                const t = viewer.clock.currentTime;
 
                const anchor = centroidCartesian(ds, t) || viewer.scene.camera.positionWC.clone();
                
-               // Create a more visible and user-friendly drag handle
+               // Create a more visible and user-friendly drag handle with save button
                const handle = viewer.entities.add({
                  position: anchor,
                  point: {
@@ -617,6 +785,91 @@ export default function CesiumViewer() {
                    heightReference: HeightReference.CLAMP_TO_GROUND
                  }
                });
+               
+               // Create button container for save and reset
+               const buttonContainer = document.createElement('div');
+               buttonContainer.id = 'floorplanButtons';
+               buttonContainer.style.cssText = `
+                 position: absolute;
+                 bottom: 140px;
+                 right: 20px;
+                 z-index: 1000;
+                 display: flex;
+                 flex-direction: column;
+                 gap: 8px;
+               `;
+               
+               // Create save position button
+               const saveButton = document.createElement('button');
+               saveButton.id = 'saveFloorplanBtn';
+               saveButton.innerHTML = '💾 Save Position';
+               saveButton.style.cssText = `
+                 padding: 10px 14px;
+                 background-color: #059669;
+                 color: white;
+                 border: none;
+                 border-radius: 6px;
+                 font-weight: 600;
+                 cursor: pointer;
+                 transition: all 0.2s;
+                 font-family: Arial, sans-serif;
+                 font-size: 13px;
+                 box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+                 min-width: 140px;
+               `;
+               
+               saveButton.onmouseover = () => {
+                 saveButton.style.backgroundColor = '#047857';
+               };
+               saveButton.onmouseout = () => {
+                 saveButton.style.backgroundColor = '#059669';
+               };
+               
+               saveButton.onclick = () => {
+                 saveFloorplanPosition(ds, viewer);
+               };
+               
+               // Create reset position button
+               const resetButton = document.createElement('button');
+               resetButton.id = 'resetFloorplanBtn';
+               resetButton.innerHTML = '🗑️ Reset to Default';
+               resetButton.style.cssText = `
+                 padding: 10px 14px;
+                 background-color: #dc2626;
+                 color: white;
+                 border: none;
+                 border-radius: 6px;
+                 font-weight: 600;
+                 cursor: pointer;
+                 transition: all 0.2s;
+                 font-family: Arial, sans-serif;
+                 font-size: 13px;
+                 box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+                 min-width: 140px;
+               `;
+               
+               resetButton.onmouseover = () => {
+                 resetButton.style.backgroundColor = '#b91c1c';
+               };
+               resetButton.onmouseout = () => {
+                 resetButton.style.backgroundColor = '#dc2626';
+               };
+               
+               resetButton.onclick = () => {
+                 resetSavedPosition();
+                 // Optionally, you can also move the floorplan back to default position here
+                 // by calling transportFloorplanToMeynell again
+               };
+               
+               // Add buttons to container
+               buttonContainer.appendChild(saveButton);
+               buttonContainer.appendChild(resetButton);
+               
+               // Add button container to map container
+               const mapContainer = document.getElementById('cesiumContainer');
+               if (mapContainer) {
+                 mapContainer.appendChild(buttonContainer);
+               }
 
                // Add visual feedback - show the handle is draggable
                const pulseAnimation = () => {
@@ -671,7 +924,7 @@ export default function CesiumViewer() {
                  viewer.scene.requestRender();
                }, ScreenSpaceEventType.MOUSE_MOVE);
 
-               // Enhanced drag end with visual feedback
+               // Enhanced drag end with visual feedback and auto-save option
                handler.setInputAction(() => {
                  dragging = false;
                  
@@ -688,6 +941,9 @@ export default function CesiumViewer() {
                  const newPulseInterval = setInterval(pulseAnimation, 800);
                  
                  console.log('Floorplan moved successfully');
+                 
+                 // Auto-save after drag (optional - you can remove this if you prefer manual save only)
+                 // setTimeout(() => saveFloorplanPosition(ds, viewer), 1000);
                }, ScreenSpaceEventType.LEFT_UP);
 
                // Enhanced keyboard controls
@@ -696,25 +952,50 @@ export default function CesiumViewer() {
                    clearInterval(pulseInterval);
                    handler.destroy();
                    viewer.entities.remove(handle);
-                   console.log('Drag handle removed');
+                   if (buttonContainer.parentNode) buttonContainer.parentNode.removeChild(buttonContainer);
+                   console.log('Drag handle and buttons removed');
                  } else if (e.key === 'h' || e.key === 'H') {
                    // Toggle handle visibility
                    if (handle.show) {
                      handle.show = new ConstantProperty(false);
-                     console.log('Drag handle hidden (press H again to show)');
+                     buttonContainer.style.display = 'none';
+                     console.log('Drag handle and buttons hidden (press H again to show)');
                    } else {
                      handle.show = new ConstantProperty(true);
-                     console.log('Drag handle shown');
+                     buttonContainer.style.display = 'block';
+                     console.log('Drag handle and buttons shown');
                    }
+                 } else if (e.key === 's' || e.key === 'S') {
+                   // Quick save with S key
+                   saveFloorplanPosition(ds, viewer);
+                 } else if (e.key === 'r' || e.key === 'R') {
+                   // Quick reset with R key
+                   resetSavedPosition();
+                 } else if (e.key === 'i' || e.key === 'I') {
+                   // Show info with I key
+                   showSavedPositionStatus();
                  }
                });
 
                // Add helpful tooltip
-               console.log('🎯 Drag handle created!');
+               console.log('🎯 Enhanced drag handle created!');
                console.log('💡 Controls:');
                console.log('   - Click and drag the orange handle to move floorplan');
-               console.log('   - Press H to hide/show the handle');
-               console.log('   - Press ESC to remove the handle');
+               console.log('   - Click "Save Position" button to save current location');
+               console.log('   - Click "Reset to Default" button to clear saved position');
+               console.log('   - Press S to quickly save position');
+               console.log('   - Press R to quickly reset position');
+               console.log('   - Press I to show saved position info');
+               console.log('   - Press H to hide/show the handle and buttons');
+               console.log('   - Press ESC to remove the handle and buttons');
+               
+               // Return cleanup function
+               return () => {
+                 clearInterval(pulseInterval);
+                 handler.destroy();
+                 viewer.entities.remove(handle);
+                 if (buttonContainer.parentNode) buttonContainer.parentNode.removeChild(buttonContainer);
+               };
              }
              
              // ---- helpers to target exactly one building ----
@@ -799,35 +1080,53 @@ export default function CesiumViewer() {
                return Cartesian3.multiplyByScalar(acc, 1 / count, new Cartesian3());
              }
 
-            /** Transport floorplan to Meynell Primary School location */
-            async function transportFloorplanToMeynell(meynellCarto: any) {
-              if (!floorplanDs) return;
-             
-              console.log('Transporting floorplan to Meynell Primary School location');
-             
-              // Get current floorplan centroid
-              const t = viewer.clock.currentTime;
-              const currentCentroid = centroidCartesian(floorplanDs, t);
-             
-              if (!currentCentroid) {
-                console.warn('Could not determine current floorplan centroid');
-                return;
+                                                   /** Transport floorplan to Meynell Primary School location or saved position */
+              async function transportFloorplanToMeynell(meynellCarto: any) {
+                if (!floorplanDs) return;
+               
+                console.log('Transporting floorplan to location...');
+               
+                // Get current floorplan centroid
+                const t = viewer.clock.currentTime;
+                const currentCentroid = centroidCartesian(floorplanDs, t);
+               
+                if (!currentCentroid) {
+                  console.warn('Could not determine current floorplan centroid');
+                  return;
+                }
+               
+                // Check if there's a saved position
+                const savedPosition = loadSavedFloorplanPosition();
+                let targetPosition: any;
+                
+                if (savedPosition) {
+                  console.log('📂 Using saved floorplan position:', savedPosition);
+                  targetPosition = Cartesian3.fromDegrees(
+                    savedPosition.longitude,
+                    savedPosition.latitude,
+                    currentCentroid.z // Preserve the original Z coordinate
+                  );
+                } else {
+                  console.log('📍 Using default Meynell location');
+                  // Use default Meynell location
+                  targetPosition = Cartesian3.fromDegrees(
+                    CesiumMath.toDegrees(meynellCarto.longitude),
+                    CesiumMath.toDegrees(meynellCarto.latitude),
+                    currentCentroid.z // Preserve the original Z coordinate
+                  );
+                }
+               
+                const offset = Cartesian3.subtract(targetPosition, currentCentroid, new Cartesian3());
+               
+                // Move all entities in the floorplan to the target location
+                translateDataSourceByDelta(floorplanDs, offset, t);
+               
+                if (savedPosition) {
+                  console.log('Floorplan transported to saved position');
+                } else {
+                  console.log('Floorplan transported to Meynell location');
+                }
               }
-             
-              // Calculate the offset needed to move floorplan to Meynell's location
-              const meynellPosition = Cartesian3.fromDegrees(
-                CesiumMath.toDegrees(meynellCarto.longitude),
-                CesiumMath.toDegrees(meynellCarto.latitude),
-                0
-              );
-             
-              const offset = Cartesian3.subtract(meynellPosition, currentCentroid, new Cartesian3());
-             
-              // Move all entities in the floorplan to the new location
-              translateDataSourceByDelta(floorplanDs, offset, t);
-             
-              console.log('Floorplan transported to Meynell location');
-            }
 
                        // Function to populate client sidebar
             function populateClientSidebar() {
@@ -1216,47 +1515,54 @@ export default function CesiumViewer() {
               return (approx ?? 0);
             }
 
-                                                   async function showFloorplanAtHeight(heightMeters: number) {
-                if (!floorplanDs) return;
- 
-                const t = viewer.clock.currentTime;
- 
-                floorplanDs.entities.values.forEach((e: any) => {
-                  // Polygons (if any): thin slab at the requested height
-                  if (e.polygon) {
-                    e.polygon.height = heightMeters;
-                    e.polygon.extrudedHeight = heightMeters + 0.05;
-                    e.polygon.outline = true;
-                    e.polygon.outlineColor = Color.BLACK;
-                    e.show = true;
-                  }
- 
-                  // Polylines: rebuild positions with the target Z
-                  if (e.polyline) {
-                    // get current positions (Property or array)
-                    const pos = e.polyline.positions?.getValue?.(t) ?? e.polyline.positions;
-                    if (Array.isArray(pos) && pos.length) {
-                      const newPos = pos.map((p: any) => {
-                        const carto = Cartographic.fromCartesian(p);
-                        return Cartesian3.fromDegrees(CesiumMath.toDegrees(carto.longitude), CesiumMath.toDegrees(carto.latitude), heightMeters + 0.10);
-                      });
-                      e.polyline.clampToGround = false;                  // make sure we use explicit heights
-                      e.polyline.positions = new ConstantProperty(newPos);
-                      e.polyline.width = e.polyline.width || 2;
-                      e.polyline.material = e.polyline.material || Color.BLUE;
-                      e.show = true;
-                    }
-                  }
+                                                                                                       async function showFloorplanAtHeight(heightMeters: number) {
+                 if (!floorplanDs) return;
+  
+                 const t = viewer.clock.currentTime;
+  
+                 floorplanDs.entities.values.forEach((e: any) => {
+                   // Polygons: create thin slabs that follow the terrain
+                   if (e.polygon) {
+                     // Remove fixed height and use ground clamping
+                     e.polygon.height = undefined;
+                     e.polygon.extrudedHeight = undefined;
+                     e.polygon.clampToGround = true; // Enable ground clamping
+                     e.polygon.outline = true;
+                     e.polygon.outlineColor = Color.BLACK;
+                     e.polygon.heightReference = HeightReference.CLAMP_TO_GROUND;
+                     e.show = true;
+                   }
+  
+                   // Polylines: clamp to ground and follow terrain
+                   if (e.polyline) {
+                     // get current positions (Property or array)
+                     const pos = e.polyline.positions?.getValue?.(t) ?? e.polyline.positions;
+                     if (Array.isArray(pos) && pos.length) {
+                       // Convert to 2D positions (lat/lon only) for ground clamping
+                       const newPos = pos.map((p: any) => {
+                         const carto = Cartographic.fromCartesian(p);
+                         return Cartesian3.fromDegrees(CesiumMath.toDegrees(carto.longitude), CesiumMath.toDegrees(carto.latitude));
+                       });
+                       e.polyline.clampToGround = true; // Enable ground clamping
+                       e.polyline.positions = new ConstantProperty(newPos);
+                       e.polyline.width = e.polyline.width || 3; // Make lines thicker for better visibility
+                       e.polyline.material = e.polyline.material || new ColorMaterialProperty(Color.BLUE.withAlpha(0.8));
+                       e.polyline.heightReference = HeightReference.CLAMP_TO_GROUND;
+                       e.show = true;
+                     }
+                   }
+                  
+                   // Ignore points - they're not needed for floorplan visualization
+                   if (e.point) {
+                     e.show = false;
+                   }
+                 });
+  
+                 // make sure a frame renders after edits
+                 viewer.scene.requestRender();
                  
-                  // Ignore points - they're not needed for floorplan visualization
-                  if (e.point) {
-                    e.show = false;
-                  }
-                });
- 
-                // make sure a frame renders after edits
-                viewer.scene.requestRender();
-              }
+                 console.log(`Floorplan shown clamped to ground`);
+               }
 
                          function hideFloorplan() {
                if (!floorplanDs) return;
@@ -1608,11 +1914,14 @@ export default function CesiumViewer() {
                if (isMeynell) {
                  console.log('🎯 Meynell Primary School detected - adding floorplan');
                  
-                 // Add & position floorplan inside the building
-                 if (!viewer.dataSources.contains(floorplanDs)) await viewer.dataSources.add(floorplanDs);
-                 await transportFloorplanToMeynell(carto);
-                 // Floorplan now clamps to terrain automatically - no need for manual height setting
-                 enableDragForDataSource(floorplanDs, viewer);  // your drag tool
+                                 // Add & position floorplan inside the building
+                if (!viewer.dataSources.contains(floorplanDs)) await viewer.dataSources.add(floorplanDs);
+                await transportFloorplanToMeynell(carto);
+                
+                // Show floorplan at building height so it overlays the 3D building
+                await showFloorplanAtHeight(buildingHeight);
+                
+                enableDragForDataSource(floorplanDs, viewer);  // your drag tool
                } else {
                  console.log('🚫 Not Meynell - no floorplan shown');
                  // Make sure the floorplan is not visible for non-Meynell
@@ -1693,11 +2002,17 @@ export default function CesiumViewer() {
 
               viewer.scene.globe.depthTestAgainstTerrain = true;
 
-              // remove any drag handles you created (keep your code)
-              const dragHandles = viewer.entities.values.filter((e: any) =>
-                e.point && e.label && e.label.text?.getValue?.() === '🔄 Drag to move floorplan'
-              );
-              dragHandles.forEach(handle => viewer.entities.remove(handle));
+                             // remove any drag handles and save buttons you created
+               const dragHandles = viewer.entities.values.filter((e: any) =>
+                 e.point && e.label && e.label.text?.getValue?.() === '🔄 Drag to move floorplan'
+               );
+               dragHandles.forEach(handle => viewer.entities.remove(handle));
+               
+               // Remove floorplan buttons if they exist
+               const buttonContainer = document.getElementById('floorplanButtons');
+               if (buttonContainer && buttonContainer.parentNode) {
+                 buttonContainer.parentNode.removeChild(buttonContainer);
+               }
 
               const current = viewer.camera.position.clone();
               viewer.camera.flyTo({ destination: current, orientation: { heading: 0, pitch: -0.5, roll: 0 }, duration: 1.0 });
