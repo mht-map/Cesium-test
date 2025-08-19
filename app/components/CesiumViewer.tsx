@@ -15,8 +15,18 @@ export default function CesiumViewer() {
   const sidebarRef = useRef<HTMLDivElement>(null);
   const clientSidebarRef = useRef<HTMLDivElement>(null);
   const layerControlsRef = useRef<HTMLDivElement>(null);
+  const viewerRef = useRef<any>(null);
+  const initializedRef = useRef<boolean>(false);
+  
+  console.log('CesiumViewer component rendered, initialized:', initializedRef.current);
 
   useEffect(() => {
+    // Prevent multiple initializations
+    if (initializedRef.current) {
+      console.log('Cesium already initialized, skipping...');
+      return;
+    }
+
     // Set the base URL for CesiumJS static files
     window.CESIUM_BASE_URL = '/cesium/';
     console.log('Cesium base URL set to:', window.CESIUM_BASE_URL);
@@ -63,6 +73,13 @@ export default function CesiumViewer() {
 
                  // Initialize the Cesium Viewer with terrain (Option 1 from advice)
          console.log('Creating Cesium viewer with terrain...');
+         
+         // Check if container already has a Cesium viewer
+         if (cesiumContainerRef.current?.querySelector('.cesium-viewer')) {
+           console.warn('Container already has a Cesium viewer, skipping creation');
+           return;
+         }
+         
          const terrainProvider = await createWorldTerrainAsync();
          const viewer = new Viewer(cesiumContainerRef.current!, {
            terrainProvider,
@@ -70,6 +87,11 @@ export default function CesiumViewer() {
            animation: false,
            timeline: false,
          });
+         
+         // Store viewer reference and mark as initialized
+         viewerRef.current = viewer;
+         initializedRef.current = true;
+         
         console.log('Cesium viewer created successfully with terrain');
 
         // Set initial camera view to UK
@@ -267,15 +289,16 @@ export default function CesiumViewer() {
               failedTileCount++;
               const now = Date.now();
               
-              console.error('Tile failed to load:', {
-                error: error,
-                errorMessage: error?.message || 'No error message',
-                errorStack: error?.stack || 'No stack trace',
-                errorType: typeof error,
-                errorKeys: Object.keys(error || {}),
-                failureCount: failedTileCount,
-                timestamp: new Date().toISOString()
-              });
+              // Only log detailed errors for the first few failures to avoid console spam
+              if (failedTileCount <= 3) {
+                console.warn(`Tile loading failed (${failedTileCount}/3):`, {
+                  message: error?.message || 'Unknown error',
+                  type: error?.constructor?.name || typeof error
+                });
+              } else if (failedTileCount % 10 === 0) {
+                // Log every 10th failure to track ongoing issues
+                console.warn(`Tile loading failures: ${failedTileCount} total`);
+              }
               
               // Log additional tileset state information
               console.warn('Tileset state during failure:', {
@@ -536,7 +559,12 @@ export default function CesiumViewer() {
           }
 
           // Initialize layer controls after a short delay to ensure everything is loaded
-          setTimeout(setupLayerControls, 500);
+          // Only set up once to prevent duplicates
+          if (!layerControlsRef.current?.querySelector('#boundariesToggle')) {
+            setTimeout(setupLayerControls, 500);
+          } else {
+            console.log('Layer controls already set up, skipping...');
+          }
 
                                                  // Load Meynell floorplan (CAD as GeoJSON) from ion
               try {
@@ -1327,9 +1355,13 @@ export default function CesiumViewer() {
                 // Add click handlers for client items
                 const clientItems = sidebar.querySelectorAll('.client-item');
                 clientItems.forEach(item => {
-                  item.addEventListener('click', () => {
+                  item.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
                     const clientName = (item as HTMLElement).dataset.client;
                     if (clientName) {
+                      console.log(`Client clicked: ${clientName}`);
                       filterByClient(clientName);
                     }
                   });
@@ -1347,6 +1379,12 @@ export default function CesiumViewer() {
 
                        // Function to filter assets by client
             function filterByClient(clientName: string) {
+              // Check if viewer is properly initialized
+              if (!viewerRef.current || viewerRef.current.isDestroyed()) {
+                console.warn('Viewer not initialized, cannot filter by client');
+                return;
+              }
+              
               console.log(`Filtering by client: ${clientName}`);
              
               // Hide all polygons first
@@ -1402,9 +1440,15 @@ export default function CesiumViewer() {
 
             // Function to pan to client boundaries
             function panToClientBoundaries(clientPolygons: any[]) {
+              // Check if viewer is properly initialized
+              if (!viewerRef.current || viewerRef.current.isDestroyed()) {
+                console.warn('Viewer not initialized, cannot pan to client boundaries');
+                return;
+              }
+              
               console.log(`Panning to ${clientPolygons.length} boundaries for client`);
              
-              const t = viewer.clock.currentTime;
+              const t = viewerRef.current.clock.currentTime;
               let minLon = Infinity;
               let maxLon = -Infinity;
               let minLat = Infinity;
@@ -1480,6 +1524,12 @@ export default function CesiumViewer() {
 
            // Function to show all assets
            function showAllAssets() {
+             // Check if viewer is properly initialized
+             if (!viewerRef.current || viewerRef.current.isDestroyed()) {
+               console.warn('Viewer not initialized, cannot show all assets');
+               return;
+             }
+             
              console.log('Showing all assets');
              
              // Show all polygons
@@ -1499,8 +1549,12 @@ export default function CesiumViewer() {
              }
            }
 
-                       // Populate the client sidebar
-            populateClientSidebar();
+                       // Populate the client sidebar only once
+            if (!clientSidebarRef.current?.querySelector('.client-item')) {
+              populateClientSidebar();
+            } else {
+              console.log('Client sidebar already populated, skipping...');
+            }
 
             // Utility functions for floorplan management
             async function groundHeightAt(carto: any): Promise<number> {
@@ -1575,7 +1629,10 @@ export default function CesiumViewer() {
              }
 
                       // Set up click event handler for 3D buildings
-            const handler = new ScreenSpaceEventHandler(viewer.scene.canvas);
+            // Only set up once to prevent duplicates
+            if (!(viewer.scene.canvas as any)._cesiumClickHandler) {
+              const handler = new ScreenSpaceEventHandler(viewer.scene.canvas);
+              (viewer.scene.canvas as any)._cesiumClickHandler = handler;
            
            // Add click handler to hide tooltip when clicking elsewhere
            const hideTooltipHandler = new ScreenSpaceEventHandler(viewer.scene.canvas);
@@ -1801,7 +1858,9 @@ export default function CesiumViewer() {
            }, ScreenSpaceEventType.LEFT_CLICK);
            
            // Set up right-click context menu for 3D buildings
-           contextMenuHandler = new ScreenSpaceEventHandler(viewer.scene.canvas);
+           // Only set up once to prevent duplicates
+           if (!contextMenuHandler) {
+             contextMenuHandler = new ScreenSpaceEventHandler(viewer.scene.canvas);
            let selectedBuildingPosition: any = null;
            let selectedBuildingFeature: any = null;
            
@@ -2017,10 +2076,11 @@ export default function CesiumViewer() {
               const current = viewer.camera.position.clone();
               viewer.camera.flyTo({ destination: current, orientation: { heading: 0, pitch: -0.5, roll: 0 }, duration: 1.0 });
             }
-
-        } catch (dataError) {
-          console.error('Error loading GeoJSON data:', dataError);
+          }
         }
+      } catch (dataError) {
+        console.error('Error loading GeoJSON data:', dataError);
+      }
 
         // Point-in-polygon test function
         function isPointInPolygon(x: number, y: number, polygon: Array<{longitude: number, latitude: number}>): boolean {
@@ -2034,19 +2094,24 @@ export default function CesiumViewer() {
           return inside;
         }
 
-                 // Cleanup function
-         return () => {
-           console.log('Cleaning up Cesium viewer...');
-           
-           // Clean up context menu handler
-           if (contextMenuHandler) {
-             contextMenuHandler.destroy();
-           }
-           
-           if (viewer && !viewer.isDestroyed()) {
-             viewer.destroy();
-           }
-         };
+        // Cleanup function
+        return () => {
+          console.log('Cleaning up Cesium viewer...');
+          
+          // Clean up context menu handler
+          if (contextMenuHandler) {
+            contextMenuHandler.destroy();
+          }
+          
+          // Clean up viewer if it exists and hasn't been destroyed
+          if (viewerRef.current && !viewerRef.current.isDestroyed()) {
+            viewerRef.current.destroy();
+            viewerRef.current = null;
+          }
+          
+          // Reset initialization flag
+          initializedRef.current = false;
+        };
       } catch (error) {
         console.error('Error initializing CesiumJS:', error);
         console.error('Error details:', error);
@@ -2054,6 +2119,20 @@ export default function CesiumViewer() {
     };
 
     initCesium();
+
+    // Cleanup function for component unmount
+    return () => {
+      console.log('Component unmounting, cleaning up Cesium...');
+      
+      // Clean up viewer if it exists
+      if (viewerRef.current && !viewerRef.current.isDestroyed()) {
+        viewerRef.current.destroy();
+        viewerRef.current = null;
+      }
+      
+      // Reset initialization flag
+      initializedRef.current = false;
+    };
   }, []);
 
            return (
